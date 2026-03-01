@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import fpl_client
 import recommender
 import simulator
+import whatsapp
 from models import (
     TeamResponse,
     SquadPlayer,
@@ -177,6 +179,12 @@ async def get_captain(team_id: int):
         current_gw=current_gw,
         recommendations=recs,
     )
+
+
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook(Body: str = Form(...)):
+    twiml = await whatsapp.handle_message(Body)
+    return Response(content=twiml, media_type="application/xml")
 
 
 @app.get("/health")
