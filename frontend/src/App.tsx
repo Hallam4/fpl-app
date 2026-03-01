@@ -47,7 +47,7 @@ function TeamIdForm({ onSubmit }: { onSubmit: (id: number) => void }) {
             type="number"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="e.g. 1234567"
+            placeholder="e.g. 392566"
             className="w-full bg-gray-700 text-white rounded-lg px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           />
