@@ -1,5 +1,7 @@
 # FPL Advisor
 
+**Live app: https://fpl-app-1.onrender.com**
+
 A Fantasy Premier League web app that analyses your squad and helps you make better decisions.
 
 ![Stack](https://img.shields.io/badge/backend-FastAPI-009688?style=flat-square) ![Stack](https://img.shields.io/badge/frontend-React%20%2B%20Vite-646CFF?style=flat-square)
