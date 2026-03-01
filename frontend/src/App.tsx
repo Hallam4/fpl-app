@@ -18,7 +18,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 function TeamIdForm({ onSubmit }: { onSubmit: (id: number) => void }) {
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState("392566");
 
   const handleSubmit = () => {
     const id = parseInt(input.trim(), 10);
