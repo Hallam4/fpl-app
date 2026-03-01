@@ -91,7 +91,11 @@ export interface CaptainResponse {
   recommendations: CaptainCandidate[];
 }
 
-const BASE = "/api";
+// In production VITE_API_URL is the backend hostname (set by Render blueprint).
+// In dev the Vite proxy forwards /api → localhost:8000.
+const BASE = import.meta.env.VITE_API_URL
+  ? `https://${import.meta.env.VITE_API_URL}/api`
+  : "/api";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
