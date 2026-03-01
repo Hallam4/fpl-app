@@ -3,3 +3,4 @@ uvicorn[standard]
 httpx
 numpy
 pydantic
+python-multipart
