@@ -1,8 +1,9 @@
 import numpy as np
 import fpl_client
-from models import SimulationResult
+from models import SimulationResult, PlayerSimRow, PlayerSimulationsResponse
 
 N_SIMULATIONS = 10_000
+N_PLAYER_SIMS = 1_000
 POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
 
@@ -130,4 +131,106 @@ async def run_simulation(
         histogram_bins=[round(b, 2) for b in bin_centers],
         histogram_counts=counts.tolist(),
         player_contributions=player_contributions,
+    )
+
+
+async def run_player_simulations(
+    current_gw: int, bootstrap: dict, squad_player_ids: set[int] | None = None
+) -> PlayerSimulationsResponse:
+    teams_by_id = {t["id"]: t for t in bootstrap["teams"]}
+    elements = bootstrap["elements"]
+
+    # Determine GW range (up to 10 GWs, capped at 38)
+    gw_start = current_gw
+    gw_end = min(current_gw + 9, 38)
+    gameweeks = list(range(gw_start, gw_end + 1))
+
+    # Fetch fixtures for all target GWs and build team → gw → [fdr] map
+    team_gw_fdr: dict[int, dict[int, list[float]]] = {}
+    for gw in gameweeks:
+        try:
+            fixtures = await fpl_client.get_fixtures(gw)
+        except Exception:
+            continue
+        for f in fixtures:
+            h, a = f["team_h"], f["team_a"]
+            team_gw_fdr.setdefault(h, {}).setdefault(gw, []).append(
+                f["team_h_difficulty"]
+            )
+            team_gw_fdr.setdefault(a, {}).setdefault(gw, []).append(
+                f["team_a_difficulty"]
+            )
+
+    rng = np.random.default_rng(42)
+    n_gws = len(gameweeks)
+    n_players = len(elements)
+
+    # Build per-player base mu/sigma from bootstrap data (no individual API calls)
+    mus_base = np.zeros(n_players)
+    sigmas_base = np.zeros(n_players)
+    for i, el in enumerate(elements):
+        form = float(el.get("form") or 0)
+        ppg = float(el.get("points_per_game") or 0)
+        mu = form if form > 0 else ppg
+        mus_base[i] = mu
+        sigmas_base[i] = max(mu * 0.5, 1.0)
+
+    # Build FDR scale matrix: (n_players, n_gws)
+    fdr_scales = np.zeros((n_players, n_gws))
+    for i, el in enumerate(elements):
+        tid = el["team"]
+        for j, gw in enumerate(gameweeks):
+            fdr_list = team_gw_fdr.get(tid, {}).get(gw)
+            if fdr_list is None:
+                # BGW — no fixture
+                fdr_scales[i, j] = 0.0
+            else:
+                # Sum FDR scales for DGW (multiple fixtures)
+                fdr_scales[i, j] = sum((6 - fdr) / 3.0 for fdr in fdr_list)
+
+    # Vectorized Monte Carlo: simulate each GW
+    # gw_means shape: (n_players, n_gws)
+    gw_means = np.zeros((n_players, n_gws))
+    for j in range(n_gws):
+        scale = fdr_scales[:, j]  # (n_players,)
+        mu_scaled = np.maximum(0.0, mus_base * scale)
+        # For BGW players (scale==0), sigma should be 0 too
+        sigma_scaled = np.where(scale > 0, sigmas_base, 0.0)
+        # (N_PLAYER_SIMS, n_players)
+        samples = rng.normal(
+            loc=mu_scaled, scale=np.maximum(sigma_scaled, 0.01),
+            size=(N_PLAYER_SIMS, n_players)
+        )
+        samples = np.maximum(samples, 0)
+        gw_means[:, j] = samples.mean(axis=0)
+        # Zero out BGW players
+        gw_means[:, j] *= (scale > 0)
+
+    totals = gw_means.sum(axis=1)
+
+    squad_ids = squad_player_ids or set()
+
+    players: list[PlayerSimRow] = []
+    for i, el in enumerate(elements):
+        players.append(
+            PlayerSimRow(
+                id=el["id"],
+                name=el["web_name"],
+                team=teams_by_id.get(el["team"], {}).get("short_name", "?"),
+                team_id=el["team"],
+                position=POSITION_MAP.get(el["element_type"], "?"),
+                now_cost=el["now_cost"] / 10,
+                form=float(el.get("form") or 0),
+                gw_expected=[round(float(gw_means[i, j]), 2) for j in range(n_gws)],
+                total_expected=round(float(totals[i]), 2),
+                in_squad=el["id"] in squad_ids,
+            )
+        )
+
+    players.sort(key=lambda p: p.total_expected, reverse=True)
+
+    return PlayerSimulationsResponse(
+        current_gw=current_gw,
+        gameweeks=gameweeks,
+        players=players,
     )

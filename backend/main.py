@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Form, Request
+from fastapi import FastAPI, HTTPException, Form, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import fpl_client
@@ -30,6 +30,7 @@ from models import (
     LiveResponse,
     LivePlayerStats,
     CaptainResponse,
+    PlayerSimulationsResponse,
 )
 
 app = FastAPI(title="FPL Advisor API", lifespan=lifespan)
@@ -195,6 +196,26 @@ async def get_captain(team_id: int):
         current_gw=current_gw,
         recommendations=recs,
     )
+
+
+@app.get("/api/player-simulations", response_model=PlayerSimulationsResponse)
+async def player_simulations(team_id: int | None = Query(default=None)):
+    try:
+        bootstrap = await fpl_client.get_bootstrap()
+        current_gw = _current_gw(bootstrap)
+
+        squad_player_ids: set[int] | None = None
+        if team_id:
+            picks_data = await fpl_client.get_entry_picks(team_id, current_gw)
+            squad_player_ids = {p["element"] for p in picks_data["picks"]}
+
+        result = await simulator.run_player_simulations(
+            current_gw, bootstrap, squad_player_ids
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return result
 
 
 @app.get("/api/live/{team_id}", response_model=LiveResponse)

@@ -5,14 +5,16 @@ import TransferRecommender from "./components/TransferRecommender";
 import FixtureDifficulty from "./components/FixtureDifficulty";
 import SimulationChart from "./components/SimulationChart";
 import CaptainPicker from "./components/CaptainPicker";
+import PlayerSimulations from "./components/PlayerSimulations";
 import { fplApi } from "./api/fpl";
 
-type Tab = "squad" | "transfers" | "fixtures" | "simulate" | "captain";
+type Tab = "squad" | "transfers" | "fixtures" | "players" | "simulate" | "captain";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "squad", label: "Squad" },
   { id: "transfers", label: "Transfers" },
   { id: "fixtures", label: "Fixtures" },
+  { id: "players", label: "Players" },
   { id: "simulate", label: "Simulate" },
   { id: "captain", label: "Captain" },
 ];
@@ -136,6 +138,7 @@ function MainApp({ teamId, onReset }: { teamId: number; onReset: () => void }) {
         {activeTab === "squad" && <TeamView teamId={teamId} />}
         {activeTab === "transfers" && <TransferRecommender teamId={teamId} />}
         {activeTab === "fixtures" && <FixturesTab teamId={teamId} />}
+        {activeTab === "players" && <PlayerSimulations teamId={teamId} />}
         {activeTab === "simulate" && <SimulationChart teamId={teamId} />}
         {activeTab === "captain" && <CaptainPicker teamId={teamId} />}
       </main>

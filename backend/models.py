@@ -113,3 +113,22 @@ class LiveResponse(BaseModel):
     current_gw: int
     gw_total: int
     players: list[LivePlayerStats]
+
+
+class PlayerSimRow(BaseModel):
+    id: int
+    name: str
+    team: str
+    team_id: int
+    position: str
+    now_cost: float
+    form: float
+    gw_expected: list[float]    # one value per GW
+    total_expected: float
+    in_squad: bool
+
+
+class PlayerSimulationsResponse(BaseModel):
+    current_gw: int
+    gameweeks: list[int]
+    players: list[PlayerSimRow]
