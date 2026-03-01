@@ -27,6 +27,8 @@ from models import (
     TeamFixtures,
     FixtureEntry,
     SimulationResult,
+    LiveResponse,
+    LivePlayerStats,
     CaptainResponse,
 )
 
@@ -192,6 +194,76 @@ async def get_captain(team_id: int):
         team_id=team_id,
         current_gw=current_gw,
         recommendations=recs,
+    )
+
+
+@app.get("/api/live/{team_id}", response_model=LiveResponse)
+async def get_live(team_id: int):
+    try:
+        bootstrap = await fpl_client.get_bootstrap()
+        current_gw = _current_gw(bootstrap)
+        picks_data = await fpl_client.get_entry_picks(team_id, current_gw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    players_by_id = {e["id"]: e for e in bootstrap["elements"]}
+    teams_by_id = {t["id"]: t for t in bootstrap["teams"]}
+    picks = picks_data["picks"]
+
+    try:
+        async with __import__("httpx").AsyncClient() as client:
+            r = await client.get(
+                f"https://fantasy.premierleague.com/api/event/{current_gw}/live/",
+                timeout=15,
+            )
+            r.raise_for_status()
+            live_data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"FPL live API error: {e}")
+
+    live_by_id = {e["id"]: e["stats"] for e in live_data.get("elements", [])}
+
+    players: list[LivePlayerStats] = []
+    gw_total = 0
+
+    for pick in picks:
+        pid = pick["element"]
+        element = players_by_id[pid]
+        stats = live_by_id.get(pid, {})
+        multiplier = pick.get("multiplier", 1)
+        gw_pts = stats.get("total_points", 0)
+        effective = gw_pts * multiplier
+
+        if multiplier > 0:
+            gw_total += effective
+
+        players.append(LivePlayerStats(
+            id=pid,
+            name=element["web_name"],
+            team=teams_by_id.get(element["team"], {}).get("short_name", "?"),
+            position=POSITION_MAP.get(element["element_type"], "?"),
+            is_captain=pick.get("is_captain", False),
+            is_vice_captain=pick.get("is_vice_captain", False),
+            multiplier=multiplier,
+            minutes=stats.get("minutes", 0),
+            gw_points=gw_pts,
+            effective_points=effective,
+            goals_scored=stats.get("goals_scored", 0),
+            assists=stats.get("assists", 0),
+            clean_sheets=stats.get("clean_sheets", 0),
+            bonus=stats.get("bonus", 0),
+            yellow_cards=stats.get("yellow_cards", 0),
+            red_cards=stats.get("red_cards", 0),
+            saves=stats.get("saves", 0),
+        ))
+
+    players.sort(key=lambda p: p.effective_points, reverse=True)
+
+    return LiveResponse(
+        team_id=team_id,
+        current_gw=current_gw,
+        gw_total=gw_total,
+        players=players,
     )
 
 

@@ -91,6 +91,33 @@ export interface CaptainResponse {
   recommendations: CaptainCandidate[];
 }
 
+export interface LivePlayerStats {
+  id: number;
+  name: string;
+  team: string;
+  position: string;
+  is_captain: boolean;
+  is_vice_captain: boolean;
+  multiplier: number;
+  minutes: number;
+  gw_points: number;
+  effective_points: number;
+  goals_scored: number;
+  assists: number;
+  clean_sheets: number;
+  bonus: number;
+  yellow_cards: number;
+  red_cards: number;
+  saves: number;
+}
+
+export interface LiveResponse {
+  team_id: number;
+  current_gw: number;
+  gw_total: number;
+  players: LivePlayerStats[];
+}
+
 // In production VITE_API_URL is the backend hostname (set by Render blueprint).
 // In dev the Vite proxy forwards /api → localhost:8000.
 const BASE = import.meta.env.VITE_API_URL
@@ -116,4 +143,6 @@ export const fplApi = {
     fetchJson<SimulationResult>(`${BASE}/simulate/${teamId}`),
   getCaptain: (teamId: number) =>
     fetchJson<CaptainResponse>(`${BASE}/captain/${teamId}`),
+  getLive: (teamId: number) =>
+    fetchJson<LiveResponse>(`${BASE}/live/${teamId}`),
 };

@@ -86,3 +86,30 @@ class CaptainResponse(BaseModel):
     team_id: int
     current_gw: int
     recommendations: list[CaptainCandidate]
+
+
+class LivePlayerStats(BaseModel):
+    id: int
+    name: str
+    team: str
+    position: str
+    is_captain: bool
+    is_vice_captain: bool
+    multiplier: int
+    minutes: int
+    gw_points: int
+    effective_points: int  # doubled for captain
+    goals_scored: int
+    assists: int
+    clean_sheets: int
+    bonus: int
+    yellow_cards: int
+    red_cards: int
+    saves: int
+
+
+class LiveResponse(BaseModel):
+    team_id: int
+    current_gw: int
+    gw_total: int
+    players: list[LivePlayerStats]
