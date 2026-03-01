@@ -17,10 +17,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: fpl-app-backend
-          property: host
+        value: fpl-app-backend-rluz.onrender.com
     routes:
       - type: rewrite
         source: /*
