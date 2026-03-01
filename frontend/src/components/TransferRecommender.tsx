@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fplApi, TransferRecommendation } from "../api/fpl";
 
@@ -6,6 +7,14 @@ const POSITION_COLOR: Record<string, string> = {
   DEF: "bg-green-700 text-green-100",
   MID: "bg-blue-700 text-blue-100",
   FWD: "bg-red-700 text-red-100",
+};
+
+const STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  a: { label: "Fit", color: "text-green-400" },
+  d: { label: "Doubtful", color: "text-yellow-400" },
+  i: { label: "Injured", color: "text-red-400" },
+  s: { label: "Suspended", color: "text-red-400" },
+  u: { label: "Unavailable", color: "text-gray-400" },
 };
 
 function GainBadge({ gain }: { gain: number }) {
@@ -19,35 +28,121 @@ function GainBadge({ gain }: { gain: number }) {
   );
 }
 
-function TransferRow({ rec }: { rec: TransferRecommendation }) {
+function StatCompare({
+  label,
+  sell,
+  buy,
+  higherIsBetter = true,
+}: {
+  label: string;
+  sell: number;
+  buy: number;
+  higherIsBetter?: boolean;
+}) {
+  const buyWins = higherIsBetter ? buy > sell : buy < sell;
   return (
-    <div className="bg-gray-800 rounded-lg p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <span
-          className={`text-xs font-bold px-2 py-0.5 rounded ${
-            POSITION_COLOR[rec.sell_player.position] ?? "bg-gray-600"
-          }`}
-        >
-          {rec.sell_player.position}
-        </span>
-        <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <div className="text-right">
-            <p className="font-semibold text-red-300">{rec.sell_player.name}</p>
-            <p className="text-xs text-gray-400">
-              {rec.sell_player.team} &middot; £{rec.sell_player.now_cost.toFixed(1)}m
-            </p>
+    <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center text-sm">
+      <span className={`text-right ${buyWins ? "text-gray-400" : "text-white font-semibold"}`}>
+        {sell.toFixed(1)}
+      </span>
+      <span className="text-xs text-gray-500 text-center w-16">{label}</span>
+      <span className={buyWins ? "text-white font-semibold" : "text-gray-400"}>
+        {buy.toFixed(1)}
+      </span>
+    </div>
+  );
+}
+
+function TransferRow({ rec }: { rec: TransferRecommendation }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const sellStatus = STATUS_LABEL[rec.sell_player.status] ?? { label: rec.sell_player.status, color: "text-gray-400" };
+  const buyStatus = STATUS_LABEL[rec.buy_player.status] ?? { label: rec.buy_player.status, color: "text-gray-400" };
+
+  return (
+    <div className="bg-gray-800 rounded-lg overflow-hidden">
+      {/* Main row */}
+      <div className="p-4 space-y-2">
+        <div className="flex items-center gap-3">
+          <span
+            className={`text-xs font-bold px-2 py-0.5 rounded flex-shrink-0 ${
+              POSITION_COLOR[rec.sell_player.position] ?? "bg-gray-600"
+            }`}
+          >
+            {rec.sell_player.position}
+          </span>
+          <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <div className="text-right">
+              <p className="font-semibold text-red-300">{rec.sell_player.name}</p>
+              <p className="text-xs text-gray-400">
+                {rec.sell_player.team} &middot; £{rec.sell_player.now_cost.toFixed(1)}m
+              </p>
+            </div>
+            <span className="text-gray-500 text-sm">→</span>
+            <div>
+              <p className="font-semibold text-green-300">{rec.buy_player.name}</p>
+              <p className="text-xs text-gray-400">
+                {rec.buy_player.team} &middot; £{rec.buy_player.now_cost.toFixed(1)}m
+              </p>
+            </div>
           </div>
-          <span className="text-gray-500 text-sm">→</span>
-          <div>
-            <p className="font-semibold text-green-300">{rec.buy_player.name}</p>
-            <p className="text-xs text-gray-400">
-              {rec.buy_player.team} &middot; £{rec.buy_player.now_cost.toFixed(1)}m
-            </p>
+          <GainBadge gain={rec.points_gain_estimate} />
+        </div>
+
+        {/* Expand toggle */}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full text-left text-xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors pt-1"
+        >
+          <span>{expanded ? "▲" : "▼"}</span>
+          <span>{expanded ? "Hide reasoning" : "Show reasoning"}</span>
+        </button>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-gray-700 p-4 space-y-4">
+          {/* Reasoning */}
+          <p className="text-sm text-gray-300 italic">{rec.reasoning}</p>
+
+          {/* Stat comparison */}
+          <div className="space-y-1">
+            <div className="grid grid-cols-[1fr_auto_1fr] gap-2 text-xs text-gray-500 mb-2">
+              <span className="text-right text-red-300 font-medium">{rec.sell_player.name}</span>
+              <span className="w-16" />
+              <span className="text-green-300 font-medium">{rec.buy_player.name}</span>
+            </div>
+            <StatCompare label="Form" sell={rec.sell_player.form} buy={rec.buy_player.form} />
+            <StatCompare label="ICT" sell={rec.sell_player.ict_index} buy={rec.buy_player.ict_index} />
+            <StatCompare label="Total pts" sell={rec.sell_player.total_points} buy={rec.buy_player.total_points} />
+            <StatCompare label="Cost £m" sell={rec.sell_player.now_cost} buy={rec.buy_player.now_cost} higherIsBetter={false} />
+          </div>
+
+          {/* Status */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-gray-700 rounded p-2">
+              <p className="text-gray-400 mb-0.5">Availability</p>
+              <p className={sellStatus.color}>{sellStatus.label}</p>
+            </div>
+            <div className="bg-gray-700 rounded p-2">
+              <p className="text-gray-400 mb-0.5">Availability</p>
+              <p className={buyStatus.color}>{buyStatus.label}</p>
+            </div>
+          </div>
+
+          {/* Scores */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-gray-700 rounded p-2 text-center">
+              <p className="text-gray-400">Sell score</p>
+              <p className="text-red-300 font-bold text-base">{rec.sell_score.toFixed(2)}</p>
+            </div>
+            <div className="bg-gray-700 rounded p-2 text-center">
+              <p className="text-gray-400">Buy score</p>
+              <p className="text-green-300 font-bold text-base">{rec.buy_score.toFixed(2)}</p>
+            </div>
           </div>
         </div>
-        <GainBadge gain={rec.points_gain_estimate} />
-      </div>
-      <p className="text-xs text-gray-400 italic">{rec.reasoning}</p>
+      )}
     </div>
   );
 }
