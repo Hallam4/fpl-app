@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -5,6 +7,18 @@ import fpl_client
 import recommender
 import simulator
 import whatsapp
+import notifier
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(notifier.run_polling_loop())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 from models import (
     TeamResponse,
     SquadPlayer,
@@ -16,7 +30,7 @@ from models import (
     CaptainResponse,
 )
 
-app = FastAPI(title="FPL Advisor API")
+app = FastAPI(title="FPL Advisor API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
