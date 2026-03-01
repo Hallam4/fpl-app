@@ -40,7 +40,7 @@ function TeamIdForm({ onSubmit }: { onSubmit: (id: number) => void }) {
             <p className="text-xs text-gray-500 mt-0.5">
               Find it in the FPL website URL:{" "}
               <span className="text-gray-300">/entry/</span>
-              <strong>1234567</strong>/
+              <strong>392566</strong>/
             </p>
           </label>
           <input
