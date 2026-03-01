@@ -29,6 +29,7 @@ function TeamIdForm({ onSubmit }: { onSubmit: (id: number) => void }) {
     <div className="min-h-screen flex flex-col items-center justify-center p-8">
       <div className="max-w-md w-full space-y-6">
         <div className="text-center">
+          <p className="text-gray-400 text-sm tracking-widest uppercase">HOB</p>
           <h1 className="text-4xl font-extrabold text-purple-400">FPL Advisor</h1>
           <p className="text-gray-400 mt-2">
             Enter your Fantasy Premier League team ID to get started.
