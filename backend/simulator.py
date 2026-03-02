@@ -121,21 +121,6 @@ def _t_copula_samples(
     return samples
 
 
-def _crude_mc_samples(
-    rng: np.random.Generator,
-    n_sims: int,
-    mus: np.ndarray,
-    sigmas: np.ndarray,
-    dfs: np.ndarray,
-) -> np.ndarray:
-    """Plain Student-t MC with no variance-reduction tricks (baseline)."""
-    # Independent t-draws per player — same distributions, no antithetic/stratified/copula
-    U = rng.uniform(size=(n_sims, len(mus)))
-    samples = stats.t.ppf(U, df=dfs) * sigmas + mus
-    np.maximum(samples, 0, out=samples)
-    return samples
-
-
 # ---------------------------------------------------------------------------
 # Team GW simulation
 # ---------------------------------------------------------------------------
@@ -224,11 +209,17 @@ async def run_simulation(
     weighted = samples * multipliers
     totals = weighted.sum(axis=1)
 
-    # --- Crude MC for variance-reduction comparison ---
-    rng_crude = np.random.default_rng(99)
-    crude = _crude_mc_samples(rng_crude, N_SIMULATIONS, mus, sigmas, dfs)
-    crude_totals = (crude * multipliers).sum(axis=1)
-    vr_factor = float(np.var(crude_totals) / max(np.var(totals), 1e-9))
+    # --- Variance-reduction measurement ---
+    # Compare antithetic-paired estimator vs unpaired.
+    # First half = original draws, second half = antithetic mirror.
+    half = N_SIMULATIONS // 2
+    t_orig = totals[:half]
+    t_anti = totals[half:]
+    # Paired mean per antithetic pair: Z_i = (X_i + X'_i) / 2
+    paired = (t_orig + t_anti) / 2.0
+    # VR = Var(unpaired mean) / Var(paired mean)
+    #     = (Var(X)/N) / (Var(Z)/(N/2))  =  Var(X) / (2 * Var(Z))
+    vr_factor = float(np.var(totals) / max(2.0 * np.var(paired), 1e-9))
 
     # --- Control variate correction for the mean ---
     # Analytical expected total under the fitted distributions
