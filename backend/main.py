@@ -6,6 +6,7 @@ from fastapi.responses import Response
 import fpl_client
 import recommender
 import simulator
+import brier as brier_mod
 import whatsapp
 import notifier
 
@@ -31,6 +32,7 @@ from models import (
     LivePlayerStats,
     CaptainResponse,
     PlayerSimulationsResponse,
+    BrierScoreResponse,
 )
 
 app = FastAPI(title="FPL Advisor API", lifespan=lifespan)
@@ -286,6 +288,18 @@ async def get_live(team_id: int):
         gw_total=gw_total,
         players=players,
     )
+
+
+@app.get("/api/brier/{team_id}", response_model=BrierScoreResponse)
+async def get_brier(team_id: int):
+    try:
+        bootstrap = await fpl_client.get_bootstrap()
+        current_gw = _current_gw(bootstrap)
+        result = await brier_mod.compute_brier_scores(team_id, current_gw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return BrierScoreResponse(team_id=team_id, **result)
 
 
 @app.post("/webhook/whatsapp")

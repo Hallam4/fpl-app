@@ -65,6 +65,13 @@ class FixturesResponse(BaseModel):
     teams: list[TeamFixtures]
 
 
+class SimulationMeta(BaseModel):
+    n_simulations: int
+    distribution: str
+    techniques: list[str]
+    variance_reduction_factor: float
+
+
 class SimulationResult(BaseModel):
     mean: float
     median: float
@@ -74,6 +81,7 @@ class SimulationResult(BaseModel):
     histogram_bins: list[float]
     histogram_counts: list[int]
     player_contributions: list[dict]
+    meta: SimulationMeta
 
 
 class CaptainCandidate(BaseModel):
@@ -113,6 +121,29 @@ class LiveResponse(BaseModel):
     current_gw: int
     gw_total: int
     players: list[LivePlayerStats]
+
+
+class CalibrationBucket(BaseModel):
+    bin_start: float
+    bin_end: float
+    predicted_avg: float
+    actual_rate: float
+    count: int
+
+
+class BrierGWDetail(BaseModel):
+    gw: int
+    brier_score: float
+    mse: float
+    n_players: int
+
+
+class BrierScoreResponse(BaseModel):
+    team_id: int
+    brier_score: Optional[float]
+    mse: Optional[float]
+    calibration: list[CalibrationBucket]
+    gw_details: list[BrierGWDetail]
 
 
 class PlayerSimRow(BaseModel):

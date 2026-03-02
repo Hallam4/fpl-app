@@ -2,5 +2,6 @@ fastapi
 uvicorn[standard]
 httpx
 numpy
+scipy
 pydantic
 python-multipart

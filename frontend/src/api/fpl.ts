@@ -61,6 +61,13 @@ export interface FixturesResponse {
   teams: TeamFixtures[];
 }
 
+export interface SimulationMeta {
+  n_simulations: number;
+  distribution: string;
+  techniques: string[];
+  variance_reduction_factor: number;
+}
+
 export interface SimulationResult {
   mean: number;
   median: number;
@@ -77,6 +84,7 @@ export interface SimulationResult {
     expected_pts: number;
     multiplier: number;
   }[];
+  meta: SimulationMeta;
 }
 
 export interface CaptainCandidate {
@@ -116,6 +124,29 @@ export interface LiveResponse {
   current_gw: number;
   gw_total: number;
   players: LivePlayerStats[];
+}
+
+export interface CalibrationBucket {
+  bin_start: number;
+  bin_end: number;
+  predicted_avg: number;
+  actual_rate: number;
+  count: number;
+}
+
+export interface BrierGWDetail {
+  gw: number;
+  brier_score: number;
+  mse: number;
+  n_players: number;
+}
+
+export interface BrierScoreResponse {
+  team_id: number;
+  brier_score: number | null;
+  mse: number | null;
+  calibration: CalibrationBucket[];
+  gw_details: BrierGWDetail[];
 }
 
 export interface PlayerSimRow {
@@ -168,4 +199,6 @@ export const fplApi = {
     fetchJson<PlayerSimulationsResponse>(
       `${BASE}/player-simulations${teamId ? `?team_id=${teamId}` : ""}`
     ),
+  getBrier: (teamId: number) =>
+    fetchJson<BrierScoreResponse>(`${BASE}/brier/${teamId}`),
 };

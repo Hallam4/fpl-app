@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { fplApi } from "../api/fpl";
+import BrierScore from "./BrierScore";
 
 function StatCard({
   label,
@@ -60,7 +61,30 @@ export default function SimulationChart({ teamId }: { teamId: number }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Monte Carlo Simulation</h2>
-        <span className="text-xs text-gray-500">n=10,000</span>
+        <span className="text-xs text-gray-500">
+          n={data.meta.n_simulations.toLocaleString()}
+        </span>
+      </div>
+
+      {/* Simulation techniques badge bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-500">Engine:</span>
+        <span className="text-xs bg-indigo-900/60 text-indigo-300 px-2 py-0.5 rounded">
+          {data.meta.distribution}
+        </span>
+        {data.meta.techniques.map((t) => (
+          <span
+            key={t}
+            className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded"
+          >
+            {t}
+          </span>
+        ))}
+        {data.meta.variance_reduction_factor > 1 && (
+          <span className="text-xs bg-emerald-900/60 text-emerald-300 px-2 py-0.5 rounded">
+            {data.meta.variance_reduction_factor}x variance reduction
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -142,6 +166,8 @@ export default function SimulationChart({ teamId }: { teamId: number }) {
           ))}
         </div>
       </div>
+
+      <BrierScore teamId={teamId} />
     </div>
   );
 }
