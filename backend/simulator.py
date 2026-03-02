@@ -165,15 +165,29 @@ async def run_player_simulations(
     n_gws = len(gameweeks)
     n_players = len(elements)
 
-    # Build per-player base mu/sigma from bootstrap data (no individual API calls)
+    # Fetch per-player history for active players (minutes > 0)
+    active_ids = [el["id"] for el in elements if int(el.get("minutes") or 0) > 0]
+    summaries = await fpl_client.get_element_summaries_batch(active_ids)
+
+    # Build per-player base mu/sigma from actual GW history
     mus_base = np.zeros(n_players)
     sigmas_base = np.zeros(n_players)
     for i, el in enumerate(elements):
-        form = float(el.get("form") or 0)
-        ppg = float(el.get("points_per_game") or 0)
-        mu = form if form > 0 else ppg
+        summary = summaries.get(el["id"])
+        history = summary.get("history", []) if summary else []
+        last5_pts = [h["total_points"] for h in history[-5:]] if history else []
+
+        if last5_pts:
+            mu = float(np.mean(last5_pts))
+            sigma = float(np.std(last5_pts)) if len(last5_pts) > 1 else max(mu * 0.5, 1.0)
+        else:
+            form = float(el.get("form") or 0)
+            ppg = float(el.get("points_per_game") or 0)
+            mu = form if form > 0 else ppg
+            sigma = max(mu * 0.5, 1.0)
+
         mus_base[i] = mu
-        sigmas_base[i] = max(mu * 0.5, 1.0)
+        sigmas_base[i] = max(sigma, 1.0)
 
     # Build FDR scale matrix: (n_players, n_gws)
     fdr_scales = np.zeros((n_players, n_gws))

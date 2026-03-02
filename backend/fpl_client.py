@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import Any, Optional
 import httpx
@@ -54,6 +55,22 @@ async def get_element_summary(player_id: int) -> dict:
         data = r.json()
     _store(key, data)
     return data
+
+
+async def get_element_summaries_batch(
+    player_ids: list[int], max_concurrent: int = 50
+) -> dict[int, dict]:
+    sem = asyncio.Semaphore(max_concurrent)
+
+    async def _fetch(pid: int) -> tuple[int, dict | None]:
+        async with sem:
+            try:
+                return pid, await get_element_summary(pid)
+            except Exception:
+                return pid, None
+
+    results = await asyncio.gather(*[_fetch(pid) for pid in player_ids])
+    return {pid: data for pid, data in results if data is not None}
 
 
 async def get_entry_picks(team_id: int, gw: int) -> dict:
