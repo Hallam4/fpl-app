@@ -126,9 +126,12 @@ def _crude_mc_samples(
     n_sims: int,
     mus: np.ndarray,
     sigmas: np.ndarray,
+    dfs: np.ndarray,
 ) -> np.ndarray:
-    """Plain Gaussian MC (for variance-reduction comparison)."""
-    samples = rng.normal(loc=mus, scale=sigmas, size=(n_sims, len(mus)))
+    """Plain Student-t MC with no variance-reduction tricks (baseline)."""
+    # Independent t-draws per player — same distributions, no antithetic/stratified/copula
+    U = rng.uniform(size=(n_sims, len(mus)))
+    samples = stats.t.ppf(U, df=dfs) * sigmas + mus
     np.maximum(samples, 0, out=samples)
     return samples
 
@@ -223,7 +226,7 @@ async def run_simulation(
 
     # --- Crude MC for variance-reduction comparison ---
     rng_crude = np.random.default_rng(99)
-    crude = _crude_mc_samples(rng_crude, N_SIMULATIONS, mus, sigmas)
+    crude = _crude_mc_samples(rng_crude, N_SIMULATIONS, mus, sigmas, dfs)
     crude_totals = (crude * multipliers).sum(axis=1)
     vr_factor = float(np.var(crude_totals) / max(np.var(totals), 1e-9))
 
