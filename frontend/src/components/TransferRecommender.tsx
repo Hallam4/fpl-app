@@ -133,14 +133,50 @@ function TransferRow({ rec }: { rec: TransferRecommendation }) {
           {/* Scores */}
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-gray-700 rounded p-2 text-center">
-              <p className="text-gray-400">Sell score</p>
-              <p className="text-red-300 font-bold text-base">{rec.sell_score.toFixed(2)}</p>
+              <p className="text-gray-400">3-GW Projected</p>
+              <p className="text-red-300 font-bold text-base">{rec.sell_score.toFixed(1)}</p>
             </div>
             <div className="bg-gray-700 rounded p-2 text-center">
-              <p className="text-gray-400">Buy score</p>
-              <p className="text-green-300 font-bold text-base">{rec.buy_score.toFixed(2)}</p>
+              <p className="text-gray-400">3-GW Projected</p>
+              <p className="text-green-300 font-bold text-base">{rec.buy_score.toFixed(1)}</p>
             </div>
           </div>
+
+          {/* Hit Analysis */}
+          {rec.hit_break_even_1gw != null && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400 font-medium">Should I take a -4 hit?</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="bg-gray-700 rounded p-2 text-center">
+                  <p className="text-gray-400">1-GW Break-Even</p>
+                  <p className={`font-bold text-base ${rec.hit_break_even_1gw! > 0.5 ? "text-green-400" : "text-red-400"}`}>
+                    {(rec.hit_break_even_1gw! * 100).toFixed(0)}%
+                  </p>
+                </div>
+                <div className="bg-gray-700 rounded p-2 text-center">
+                  <p className="text-gray-400">3-GW Break-Even</p>
+                  <p className={`font-bold text-base ${rec.hit_break_even_3gw! > 0.5 ? "text-green-400" : "text-red-400"}`}>
+                    {(rec.hit_break_even_3gw! * 100).toFixed(0)}%
+                  </p>
+                </div>
+                <div className="bg-gray-700 rounded p-2 text-center">
+                  <p className="text-gray-400">1-GW Net pts</p>
+                  <p className={`font-bold text-base ${rec.expected_net_1gw! > 0 ? "text-green-400" : "text-red-400"}`}>
+                    {rec.expected_net_1gw! > 0 ? "+" : ""}{rec.expected_net_1gw!.toFixed(1)}
+                  </p>
+                </div>
+                <div className="bg-gray-700 rounded p-2 text-center">
+                  <p className="text-gray-400">3-GW Net pts</p>
+                  <p className={`font-bold text-base ${rec.expected_net_3gw! > 0 ? "text-green-400" : "text-red-400"}`}>
+                    {rec.expected_net_3gw! > 0 ? "+" : ""}{rec.expected_net_3gw!.toFixed(1)}
+                  </p>
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-600">
+                Break-even = probability the buy outscores sell by 4+ pts. Net = expected point difference minus 4.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -156,7 +192,7 @@ export default function TransferRecommender({ teamId }: { teamId: number }) {
   if (isLoading)
     return (
       <div className="flex justify-center py-12 text-gray-400">
-        Calculating transfer recommendations...
+        Running simulations for transfer analysis...
       </div>
     );
   if (error)
@@ -194,8 +230,8 @@ export default function TransferRecommender({ teamId }: { teamId: number }) {
       )}
 
       <p className="text-xs text-gray-500 mt-4">
-        Recommendations are based on form, fixture difficulty, and ICT index. Always
-        use your own judgement.
+        Recommendations powered by Monte Carlo simulations. 3-GW projected points
+        from Student-t fitted distributions with FDR scaling. Always use your own judgement.
       </p>
     </div>
   );

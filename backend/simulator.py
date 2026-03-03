@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from scipy import stats
 from scipy.linalg import cholesky
@@ -13,6 +14,14 @@ from models import (
 N_SIMULATIONS = 10_000
 N_PLAYER_SIMS = 1_000
 N_STRATA = 50
+
+# ---------------------------------------------------------------------------
+# Module-level caches (shared across endpoints, 5-min TTL)
+# ---------------------------------------------------------------------------
+_PLAYER_SIM_TTL = 300
+
+_player_sim_cache: dict = {}  # {cache_key: (timestamp, PlayerSimulationsResponse)}
+_player_fit_cache: dict = {}  # {player_id: (mu_base, sigma, df)}
 POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 SAME_TEAM_CORR = 0.35
 T_COPULA_DF = 4  # low df = more tail dependence between same-team players
@@ -346,6 +355,10 @@ async def run_player_simulations(
         sigmas_base[i] = max(sigma, 1.0)
         dfs_base[i] = df
 
+    # Populate fit cache as side-effect
+    for i, el in enumerate(elements):
+        _player_fit_cache[el["id"]] = (float(mus_base[i]), float(sigmas_base[i]), float(dfs_base[i]))
+
     # FDR scale matrix (n_players × n_gws)
     fdr_scales = np.zeros((n_players, n_gws))
     for i, el in enumerate(elements):
@@ -410,6 +423,115 @@ async def run_player_simulations(
         gameweeks=gameweeks,
         players=players,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cached accessors
+# ---------------------------------------------------------------------------
+
+async def get_cached_player_simulations(
+    current_gw: int, bootstrap: dict, squad_player_ids: set[int] | None = None
+) -> PlayerSimulationsResponse:
+    """Return cached PlayerSimulationsResponse or recompute (5-min TTL)."""
+    cache_key = (current_gw, frozenset(squad_player_ids) if squad_player_ids else None)
+    now = time.time()
+    if cache_key in _player_sim_cache:
+        ts, result = _player_sim_cache[cache_key]
+        if now - ts < _PLAYER_SIM_TTL:
+            return result
+    result = await run_player_simulations(current_gw, bootstrap, squad_player_ids)
+    _player_sim_cache[cache_key] = (now, result)
+    return result
+
+
+def get_cached_player_fits(current_gw: int) -> dict[int, tuple[float, float, float]]:
+    """Return fitted (mu_base, sigma, df) per player. Populated by run_player_simulations."""
+    return dict(_player_fit_cache)
+
+
+# ---------------------------------------------------------------------------
+# Hit analysis (Monte Carlo break-even for -4 transfers)
+# ---------------------------------------------------------------------------
+
+async def compute_hit_analysis(
+    sell_id: int, buy_id: int, current_gw: int, bootstrap: dict
+) -> dict:
+    """Simulate break-even probabilities and expected net for a -4 hit transfer."""
+    fits = get_cached_player_fits(current_gw)
+    if sell_id not in fits or buy_id not in fits:
+        return {}
+
+    sell_mu, sell_sigma, sell_df = fits[sell_id]
+    buy_mu, buy_sigma, buy_df = fits[buy_id]
+
+    # Get FDR for next 3 GWs
+    elements_by_id = {e["id"]: e for e in bootstrap["elements"]}
+    sell_team = elements_by_id[sell_id]["team"]
+    buy_team = elements_by_id[buy_id]["team"]
+
+    gw_end = min(current_gw + 2, 38)
+    gameweeks = list(range(current_gw, gw_end + 1))
+
+    team_gw_fdr: dict[int, dict[int, float]] = {}
+    for gw in gameweeks:
+        try:
+            fixtures = await fpl_client.get_fixtures(gw)
+        except Exception:
+            continue
+        for f in fixtures:
+            h, a = f["team_h"], f["team_a"]
+            team_gw_fdr.setdefault(h, {})[gw] = f["team_h_difficulty"]
+            team_gw_fdr.setdefault(a, {})[gw] = f["team_a_difficulty"]
+
+    rng = np.random.default_rng(42)
+    n_sims = 1_000
+    half = n_sims // 2
+
+    sell_gw_samples = []
+    buy_gw_samples = []
+
+    for gw in gameweeks:
+        sell_fdr = team_gw_fdr.get(sell_team, {}).get(gw, 3.0)
+        buy_fdr = team_gw_fdr.get(buy_team, {}).get(gw, 3.0)
+        sell_scale = (6 - sell_fdr) / 3.0
+        buy_scale = (6 - buy_fdr) / 3.0
+
+        sell_mu_s = max(0.0, sell_mu * sell_scale)
+        buy_mu_s = max(0.0, buy_mu * buy_scale)
+
+        # Stratified + antithetic samples
+        U_sell = np.clip(_stratified_uniform(rng, half, N_STRATA), 1e-8, 1 - 1e-8)
+        U_buy = np.clip(_stratified_uniform(rng, half, N_STRATA), 1e-8, 1 - 1e-8)
+
+        s1_sell = stats.t.ppf(U_sell, df=sell_df) * sell_sigma + sell_mu_s
+        s2_sell = stats.t.ppf(1.0 - U_sell, df=sell_df) * sell_sigma + sell_mu_s
+        s1_buy = stats.t.ppf(U_buy, df=buy_df) * buy_sigma + buy_mu_s
+        s2_buy = stats.t.ppf(1.0 - U_buy, df=buy_df) * buy_sigma + buy_mu_s
+
+        sell_samples = np.maximum(np.concatenate([s1_sell, s2_sell]), 0)
+        buy_samples = np.maximum(np.concatenate([s1_buy, s2_buy]), 0)
+
+        sell_gw_samples.append(sell_samples)
+        buy_gw_samples.append(buy_samples)
+
+    # 1-GW analysis
+    diff_1gw = buy_gw_samples[0] - sell_gw_samples[0]
+    hit_break_even_1gw = float(np.mean(diff_1gw > 4))
+    expected_net_1gw = float(np.mean(diff_1gw)) - 4
+
+    # 3-GW analysis
+    sell_3gw = sum(sell_gw_samples[:3])
+    buy_3gw = sum(buy_gw_samples[:3])
+    diff_3gw = buy_3gw - sell_3gw
+    hit_break_even_3gw = float(np.mean(diff_3gw > 4))
+    expected_net_3gw = float(np.mean(diff_3gw)) - 4
+
+    return {
+        "hit_break_even_1gw": round(hit_break_even_1gw, 3),
+        "hit_break_even_3gw": round(hit_break_even_3gw, 3),
+        "expected_net_1gw": round(expected_net_1gw, 2),
+        "expected_net_3gw": round(expected_net_3gw, 2),
+    }
 
 
 # ---------------------------------------------------------------------------

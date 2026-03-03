@@ -37,6 +37,10 @@ class TransferRecommendation(BaseModel):
     buy_score: float
     points_gain_estimate: float
     reasoning: str
+    hit_break_even_1gw: Optional[float] = None
+    hit_break_even_3gw: Optional[float] = None
+    expected_net_1gw: Optional[float] = None
+    expected_net_3gw: Optional[float] = None
 
 
 class TransfersResponse(BaseModel):
@@ -87,6 +91,8 @@ class SimulationResult(BaseModel):
 class CaptainCandidate(BaseModel):
     player: PlayerInfo
     captain_score: float
+    expected_pts: float
+    p90_pts: float
     reasoning: str
 
 
@@ -179,3 +185,29 @@ class PlayerDetailSimulation(BaseModel):
     histogram_bins: list[float]
     histogram_counts: list[int]
     n_simulations: int
+
+
+class ChipGW(BaseModel):
+    gw: int
+    bb_score: float
+    tc_uplift: float
+    fh_gain: float
+    bb_rank: int
+    tc_rank: int
+    fh_rank: int
+
+
+class ChipAdvice(BaseModel):
+    best_bb_gw: int
+    best_bb_score: float
+    best_tc_gw: int
+    best_tc_uplift: float
+    best_fh_gw: int
+    best_fh_gain: float
+    gw_breakdown: list[ChipGW]
+
+
+class ChipResponse(BaseModel):
+    team_id: int
+    current_gw: int
+    advice: ChipAdvice

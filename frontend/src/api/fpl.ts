@@ -33,6 +33,10 @@ export interface TransferRecommendation {
   buy_score: number;
   points_gain_estimate: number;
   reasoning: string;
+  hit_break_even_1gw: number | null;
+  hit_break_even_3gw: number | null;
+  expected_net_1gw: number | null;
+  expected_net_3gw: number | null;
 }
 
 export interface TransfersResponse {
@@ -90,6 +94,8 @@ export interface SimulationResult {
 export interface CaptainCandidate {
   player: PlayerInfo;
   captain_score: number;
+  expected_pts: number;
+  p90_pts: number;
   reasoning: string;
 }
 
@@ -184,6 +190,32 @@ export interface PlayerDetailSimulation {
   n_simulations: number;
 }
 
+export interface ChipGW {
+  gw: number;
+  bb_score: number;
+  tc_uplift: number;
+  fh_gain: number;
+  bb_rank: number;
+  tc_rank: number;
+  fh_rank: number;
+}
+
+export interface ChipAdvice {
+  best_bb_gw: number;
+  best_bb_score: number;
+  best_tc_gw: number;
+  best_tc_uplift: number;
+  best_fh_gw: number;
+  best_fh_gain: number;
+  gw_breakdown: ChipGW[];
+}
+
+export interface ChipResponse {
+  team_id: number;
+  current_gw: number;
+  advice: ChipAdvice;
+}
+
 // In production VITE_API_URL is the backend hostname (set by Render blueprint).
 // In dev the Vite proxy forwards /api → localhost:8000.
 const BASE = import.meta.env.VITE_API_URL
@@ -219,4 +251,6 @@ export const fplApi = {
     fetchJson<BrierScoreResponse>(`${BASE}/brier/${teamId}`),
   getPlayerDetail: (playerId: number) =>
     fetchJson<PlayerDetailSimulation>(`${BASE}/player-detail/${playerId}`),
+  getChips: (teamId: number) =>
+    fetchJson<ChipResponse>(`${BASE}/chips/${teamId}`),
 };

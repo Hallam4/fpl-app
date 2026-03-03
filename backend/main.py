@@ -34,6 +34,7 @@ from models import (
     PlayerSimulationsResponse,
     BrierScoreResponse,
     PlayerDetailSimulation,
+    ChipResponse,
 )
 
 app = FastAPI(title="FPL Advisor API", lifespan=lifespan)
@@ -212,7 +213,7 @@ async def player_simulations(team_id: int | None = Query(default=None)):
             picks_data = await fpl_client.get_entry_picks(team_id, current_gw)
             squad_player_ids = {p["element"] for p in picks_data["picks"]}
 
-        result = await simulator.run_player_simulations(
+        result = await simulator.get_cached_player_simulations(
             current_gw, bootstrap, squad_player_ids
         )
     except Exception as e:
@@ -233,6 +234,22 @@ async def get_player_detail(player_id: int):
         raise HTTPException(status_code=400, detail=str(e))
 
     return result
+
+
+@app.get("/api/chips/{team_id}", response_model=ChipResponse)
+async def get_chips(team_id: int):
+    try:
+        bootstrap = await fpl_client.get_bootstrap()
+        current_gw = _current_gw(bootstrap)
+        advice = await recommender.build_chip_advice(team_id, current_gw, bootstrap)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return ChipResponse(
+        team_id=team_id,
+        current_gw=current_gw,
+        advice=advice,
+    )
 
 
 @app.get("/api/live/{team_id}", response_model=LiveResponse)

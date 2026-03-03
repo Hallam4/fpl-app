@@ -10,7 +10,7 @@ function CaptainCard({
   candidate: CaptainCandidate;
   rank: number;
 }) {
-  const { player, captain_score, reasoning } = candidate;
+  const { player, reasoning } = candidate;
 
   return (
     <div className="bg-gray-800 rounded-xl p-5 flex flex-col gap-3 relative overflow-hidden">
@@ -39,20 +39,20 @@ function CaptainCard({
 
       <div className="flex gap-3">
         <div className="flex-1 bg-gray-700 rounded-lg p-2 text-center">
-          <p className="text-xs text-gray-400">Captain Score</p>
+          <p className="text-xs text-gray-400">Expected</p>
           <p className="text-xl font-bold text-purple-400">
-            {(captain_score * 100).toFixed(0)}
+            {candidate.expected_pts.toFixed(1)}
+          </p>
+        </div>
+        <div className="flex-1 bg-gray-700 rounded-lg p-2 text-center">
+          <p className="text-xs text-gray-400">P90 Upside</p>
+          <p className="text-xl font-bold text-blue-400">
+            {candidate.p90_pts.toFixed(1)}
           </p>
         </div>
         <div className="flex-1 bg-gray-700 rounded-lg p-2 text-center">
           <p className="text-xs text-gray-400">Form</p>
-          <p className="text-xl font-bold text-blue-400">{player.form}</p>
-        </div>
-        <div className="flex-1 bg-gray-700 rounded-lg p-2 text-center">
-          <p className="text-xs text-gray-400">ICT</p>
-          <p className="text-xl font-bold text-green-400">
-            {player.ict_index.toFixed(0)}
-          </p>
+          <p className="text-xl font-bold text-green-400">{player.form}</p>
         </div>
       </div>
 
@@ -95,7 +95,8 @@ export default function CaptainPicker({ teamId }: { teamId: number }) {
       </div>
 
       <p className="text-xs text-gray-500">
-        Score combines form (35%), ICT index (35%), and next GW fixture difficulty (30%).
+        Ranked by Monte Carlo expected points. P90 shows 90th-percentile upside
+        from Student-t fitted distributions.
       </p>
     </div>
   );

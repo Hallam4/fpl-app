@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fplApi, PlayerSimRow, PlayerSimulationsResponse } from "../api/fpl";
 import TeamForecast from "./TeamForecast";
+import ChipAdvisor from "./ChipAdvisor";
 import BrierScore from "./BrierScore";
 import PlayerDetailPanel from "./PlayerDetailPanel";
 
@@ -322,6 +323,9 @@ export default function Projections({ teamId }: { teamId: number }) {
         </div>
       )}
       {simQuery.data && <TeamForecast data={simQuery.data} />}
+
+      {/* ── Section A.5: Chip Strategy ── */}
+      <ChipAdvisor teamId={teamId} />
 
       {/* ── Section B: Your Squad — Next 10 GWs ── */}
       {playerSimQuery.isLoading && (
