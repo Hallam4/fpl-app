@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ScatterChart,
@@ -19,6 +20,8 @@ function grade(score: number): { label: string; color: string } {
 }
 
 export default function BrierScore({ teamId }: { teamId: number }) {
+  const [showGwBreakdown, setShowGwBreakdown] = useState(false);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["brier", teamId],
     queryFn: () => fplApi.getBrier(teamId),
@@ -148,34 +151,44 @@ export default function BrierScore({ teamId }: { teamId: number }) {
         </div>
       )}
 
-      {/* Per-GW breakdown */}
+      {/* Per-GW breakdown (collapsible) */}
       {data.gw_details.length > 0 && (
         <div>
-          <p className="text-xs text-gray-400 mb-2">Per-Gameweek Breakdown</p>
-          <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-            {data.gw_details.map((gw) => {
-              const g = grade(gw.brier_score);
-              return (
-                <div
-                  key={gw.gw}
-                  className="flex items-center gap-3 bg-gray-800 rounded px-3 py-1.5"
-                >
-                  <span className="text-xs text-gray-400 w-10">
-                    GW{gw.gw}
-                  </span>
-                  <span className={`text-xs font-medium w-16 ${g.color}`}>
-                    {gw.brier_score.toFixed(4)}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    MSE {gw.mse.toFixed(1)}
-                  </span>
-                  <span className="text-xs text-gray-600 ml-auto">
-                    {gw.n_players} players
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+          <button
+            onClick={() => setShowGwBreakdown((v) => !v)}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-300 transition-colors mb-2"
+          >
+            <span className="inline-block transition-transform" style={{ transform: showGwBreakdown ? "rotate(90deg)" : "rotate(0deg)" }}>
+              ▶
+            </span>
+            Per-Gameweek Breakdown ({data.gw_details.length})
+          </button>
+          {showGwBreakdown && (
+            <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+              {data.gw_details.map((gw) => {
+                const g = grade(gw.brier_score);
+                return (
+                  <div
+                    key={gw.gw}
+                    className="flex items-center gap-3 bg-gray-800 rounded px-3 py-1.5"
+                  >
+                    <span className="text-xs text-gray-400 w-10">
+                      GW{gw.gw}
+                    </span>
+                    <span className={`text-xs font-medium w-16 ${g.color}`}>
+                      {gw.brier_score.toFixed(4)}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      MSE {gw.mse.toFixed(1)}
+                    </span>
+                    <span className="text-xs text-gray-600 ml-auto">
+                      {gw.n_players} players
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

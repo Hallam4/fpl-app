@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   BarChart,
   Bar,
@@ -9,8 +8,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
-import { fplApi } from "../api/fpl";
-import BrierScore from "./BrierScore";
+import { SimulationResult } from "../api/fpl";
 
 function StatCard({
   label,
@@ -29,29 +27,7 @@ function StatCard({
   );
 }
 
-export default function SimulationChart({ teamId }: { teamId: number }) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["simulate", teamId],
-    queryFn: () => fplApi.simulate(teamId),
-  });
-
-  if (isLoading)
-    return (
-      <div className="flex flex-col items-center py-12 text-gray-400 gap-2">
-        <div className="text-sm">Running 10,000 Monte Carlo simulations...</div>
-        <div className="w-48 h-1 bg-gray-700 rounded overflow-hidden">
-          <div className="h-full bg-purple-500 animate-pulse w-3/4" />
-        </div>
-      </div>
-    );
-  if (error)
-    return (
-      <div className="text-red-400 py-8 text-center">
-        Error: {(error as Error).message}
-      </div>
-    );
-  if (!data) return null;
-
+export default function TeamForecast({ data }: { data: SimulationResult }) {
   const chartData = data.histogram_bins.map((bin, i) => ({
     pts: bin.toFixed(0),
     count: data.histogram_counts[i],
@@ -60,7 +36,7 @@ export default function SimulationChart({ teamId }: { teamId: number }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Monte Carlo Simulation</h2>
+        <h2 className="text-lg font-bold">GW Team Forecast</h2>
         <span className="text-xs text-gray-500">
           n={data.meta.n_simulations.toLocaleString()}
         </span>
@@ -142,32 +118,6 @@ export default function SimulationChart({ teamId }: { teamId: number }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-
-      <div>
-        <h3 className="text-sm font-semibold text-gray-400 mb-2">
-          Expected Player Contributions
-        </h3>
-        <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-          {data.player_contributions.map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center gap-3 bg-gray-800 rounded px-3 py-2"
-            >
-              <span className="text-xs text-gray-400 w-8">{p.position}</span>
-              <span className="text-sm flex-1 truncate">{p.name}</span>
-              <span className="text-xs text-gray-400">{p.team}</span>
-              {p.multiplier === 2 && (
-                <span className="text-xs bg-purple-700 px-1 rounded">C</span>
-              )}
-              <span className="text-sm font-bold text-purple-400 w-12 text-right">
-                {p.expected_pts} pts
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <BrierScore teamId={teamId} />
     </div>
   );
 }
