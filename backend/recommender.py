@@ -1,4 +1,5 @@
 from typing import Any
+import numpy as np
 from scipy import stats
 import fpl_client
 from models import (
@@ -8,7 +9,12 @@ from models import (
     ChipGW,
     ChipAdvice,
 )
-from simulator import get_cached_player_simulations, get_cached_player_fits, compute_hit_analysis
+from simulator import (
+    get_cached_player_simulations,
+    _fit_student_t,
+    _stratified_uniform,
+    N_STRATA,
+)
 
 POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
@@ -52,6 +58,54 @@ async def get_squad_players(
     return squad_elements, picks, bank, players_by_id
 
 
+async def _fit_player(element: dict, summary: dict | None) -> tuple[float, float, float]:
+    """Fit Student-t from a player's last 5 GW history, falling back to bootstrap form."""
+    history = summary.get("history", []) if summary else []
+    last5 = [h["total_points"] for h in history[-5:]] if history else []
+    if last5:
+        return _fit_student_t(last5)
+    form = float(element.get("form") or 0)
+    ppg = float(element.get("points_per_game") or 0)
+    mu = form if form > 0 else ppg
+    return mu, max(mu * 0.5, 1.0), 4.0
+
+
+def _quick_fit(element: dict) -> tuple[float, float, float]:
+    """Lightweight fit from bootstrap data only (no API call)."""
+    form = float(element.get("form") or 0)
+    ppg = float(element.get("points_per_game") or 0)
+    mu = form if form > 0 else ppg
+    return mu, max(mu * 0.5, 1.0), 4.0
+
+
+def _project_gw(mu: float, fdr: float) -> float:
+    """FDR-scaled expected points for a single GW."""
+    return max(0.0, mu * (6 - fdr) / 3.0)
+
+
+async def _get_team_gw_fdr(current_gw: int, n_gws: int = 3) -> dict[int, dict[int, float]]:
+    """Build team_id → {gw: fdr} for the next n GWs."""
+    team_gw_fdr: dict[int, dict[int, float]] = {}
+    for gw in range(current_gw, min(current_gw + n_gws, 39)):
+        try:
+            fixtures = await fpl_client.get_fixtures(gw)
+        except Exception:
+            continue
+        for f in fixtures:
+            team_gw_fdr.setdefault(f["team_h"], {})[gw] = f["team_h_difficulty"]
+            team_gw_fdr.setdefault(f["team_a"], {})[gw] = f["team_a_difficulty"]
+    return team_gw_fdr
+
+
+def _project_3gw(mu: float, team_id: int, current_gw: int, team_gw_fdr: dict) -> float:
+    """Sum of FDR-scaled expected points over 3 GWs."""
+    total = 0.0
+    for gw in range(current_gw, min(current_gw + 3, 39)):
+        fdr = team_gw_fdr.get(team_id, {}).get(gw, 3.0)
+        total += _project_gw(mu, fdr)
+    return total
+
+
 async def build_transfer_recommendations(
     team_id: int, current_gw: int, bootstrap: dict
 ) -> list[TransferRecommendation]:
@@ -61,22 +115,28 @@ async def build_transfer_recommendations(
     teams_by_id = {t["id"]: t for t in bootstrap["teams"]}
     squad_ids = {e["id"] for e in squad_elements}
 
-    # Get simulation projections for all players
-    sim_data = await get_cached_player_simulations(current_gw, bootstrap, squad_ids)
-    sims_by_id = {p.id: p for p in sim_data.players}
+    # Fetch FDR for next 3 GWs
+    team_gw_fdr = await _get_team_gw_fdr(current_gw, 3)
+
+    # Fit squad players from their history (only 15 API calls)
+    squad_summaries = await fpl_client.get_element_summaries_batch(
+        [e["id"] for e in squad_elements]
+    )
+    squad_fits: dict[int, tuple[float, float, float]] = {}
+    for element in squad_elements:
+        squad_fits[element["id"]] = await _fit_player(
+            element, squad_summaries.get(element["id"])
+        )
 
     recommendations: list[TransferRecommendation] = []
 
     for element in squad_elements:
-        sim = sims_by_id.get(element["id"])
-        if not sim:
-            continue
-
-        sell_3gw = sum(sim.gw_expected[:3])
+        mu, sigma, df = squad_fits[element["id"]]
+        sell_3gw = _project_3gw(mu, element["team"], current_gw, team_gw_fdr)
         pos = element["element_type"]
         sell_price = element["now_cost"] / 10
 
-        # Find best replacement by 3-GW projected points
+        # Find best replacement — use bootstrap form for candidates (no API calls)
         best_buy = None
         best_buy_3gw = -1.0
 
@@ -91,10 +151,8 @@ async def build_transfer_recommendations(
             if candidate.get("status") not in ("a", "d"):
                 continue
 
-            cand_sim = sims_by_id.get(candidate["id"])
-            if not cand_sim:
-                continue
-            cand_3gw = sum(cand_sim.gw_expected[:3])
+            cand_mu, _, _ = _quick_fit(candidate)
+            cand_3gw = _project_3gw(cand_mu, candidate["team"], current_gw, team_gw_fdr)
 
             if cand_3gw > best_buy_3gw:
                 best_buy_3gw = cand_3gw
@@ -112,7 +170,7 @@ async def build_transfer_recommendations(
 
         reasoning = (
             f"{buy_info.name} projects {best_buy_3gw:.1f} pts vs "
-            f"{sell_info.name} {sell_3gw:.1f} pts over 3 GWs (Monte Carlo)"
+            f"{sell_info.name} {sell_3gw:.1f} pts over 3 GWs (Student-t)"
         )
 
         recommendations.append(
@@ -129,10 +187,11 @@ async def build_transfer_recommendations(
     recommendations.sort(key=lambda r: r.points_gain_estimate, reverse=True)
     recommendations = recommendations[:5]
 
-    # Add hit analysis for each recommendation
+    # Hit analysis for each recommendation
     for rec in recommendations:
-        hit = await compute_hit_analysis(
-            rec.sell_player.id, rec.buy_player.id, current_gw, bootstrap
+        hit = await _compute_hit_analysis(
+            rec.sell_player.id, rec.buy_player.id,
+            squad_fits, current_gw, bootstrap, team_gw_fdr,
         )
         if hit:
             rec.hit_break_even_1gw = hit["hit_break_even_1gw"]
@@ -143,6 +202,68 @@ async def build_transfer_recommendations(
     return recommendations
 
 
+async def _compute_hit_analysis(
+    sell_id: int,
+    buy_id: int,
+    squad_fits: dict[int, tuple[float, float, float]],
+    current_gw: int,
+    bootstrap: dict,
+    team_gw_fdr: dict,
+) -> dict:
+    """Lightweight hit analysis using pre-computed fits."""
+    elements_by_id = {e["id"]: e for e in bootstrap["elements"]}
+    sell_el = elements_by_id.get(sell_id)
+    buy_el = elements_by_id.get(buy_id)
+    if not sell_el or not buy_el:
+        return {}
+
+    # Sell player has a full fit; buy player uses quick fit
+    sell_mu, sell_sigma, sell_df = squad_fits.get(sell_id, _quick_fit(sell_el))
+    buy_mu, buy_sigma, buy_df = _quick_fit(buy_el)
+
+    rng = np.random.default_rng(42)
+    n_sims = 1_000
+    half = n_sims // 2
+
+    sell_gw_samples = []
+    buy_gw_samples = []
+    gameweeks = list(range(current_gw, min(current_gw + 3, 39)))
+
+    for gw in gameweeks:
+        sell_fdr = team_gw_fdr.get(sell_el["team"], {}).get(gw, 3.0)
+        buy_fdr = team_gw_fdr.get(buy_el["team"], {}).get(gw, 3.0)
+        sell_mu_s = max(0.0, sell_mu * (6 - sell_fdr) / 3.0)
+        buy_mu_s = max(0.0, buy_mu * (6 - buy_fdr) / 3.0)
+
+        U_sell = np.clip(_stratified_uniform(rng, half, N_STRATA), 1e-8, 1 - 1e-8)
+        U_buy = np.clip(_stratified_uniform(rng, half, N_STRATA), 1e-8, 1 - 1e-8)
+
+        s1_sell = stats.t.ppf(U_sell, df=sell_df) * sell_sigma + sell_mu_s
+        s2_sell = stats.t.ppf(1.0 - U_sell, df=sell_df) * sell_sigma + sell_mu_s
+        s1_buy = stats.t.ppf(U_buy, df=buy_df) * buy_sigma + buy_mu_s
+        s2_buy = stats.t.ppf(1.0 - U_buy, df=buy_df) * buy_sigma + buy_mu_s
+
+        sell_gw_samples.append(np.maximum(np.concatenate([s1_sell, s2_sell]), 0))
+        buy_gw_samples.append(np.maximum(np.concatenate([s1_buy, s2_buy]), 0))
+
+    diff_1gw = buy_gw_samples[0] - sell_gw_samples[0]
+    hit_break_even_1gw = float(np.mean(diff_1gw > 4))
+    expected_net_1gw = float(np.mean(diff_1gw)) - 4
+
+    sell_3gw = sum(sell_gw_samples[:3])
+    buy_3gw = sum(buy_gw_samples[:3])
+    diff_3gw = buy_3gw - sell_3gw
+    hit_break_even_3gw = float(np.mean(diff_3gw > 4))
+    expected_net_3gw = float(np.mean(diff_3gw)) - 4
+
+    return {
+        "hit_break_even_1gw": round(hit_break_even_1gw, 3),
+        "hit_break_even_3gw": round(hit_break_even_3gw, 3),
+        "expected_net_1gw": round(expected_net_1gw, 2),
+        "expected_net_3gw": round(expected_net_3gw, 2),
+    }
+
+
 async def build_captain_recommendations(
     team_id: int, current_gw: int, bootstrap: dict
 ) -> list[CaptainCandidate]:
@@ -150,14 +271,13 @@ async def build_captain_recommendations(
         team_id, current_gw, bootstrap
     )
     teams_by_id = {t["id"]: t for t in bootstrap["teams"]}
-    squad_ids = {e["id"] for e in squad_elements}
 
-    # Get simulation projections
-    sim_data = await get_cached_player_simulations(current_gw, bootstrap, squad_ids)
-    sims_by_id = {p.id: p for p in sim_data.players}
-    fits = get_cached_player_fits(current_gw)
+    # Fetch summaries for squad only (15 players)
+    squad_summaries = await fpl_client.get_element_summaries_batch(
+        [e["id"] for e in squad_elements]
+    )
 
-    # Next GW fixtures for opponent display
+    # Next GW fixtures
     try:
         next_fixtures = await fpl_client.get_fixtures(current_gw)
     except Exception:
@@ -174,22 +294,12 @@ async def build_captain_recommendations(
         if element["element_type"] == 1:  # skip GKs
             continue
 
-        sim = sims_by_id.get(element["id"])
-        if not sim:
-            continue
-
-        expected_pts = sim.gw_expected[0] if sim.gw_expected else 0.0
-
-        # P90 from cached fit params
-        fit = fits.get(element["id"])
-        if fit:
-            mu_base, sigma, df = fit
-            fdr = team_fdr.get(element["team"], 3.0)
-            fdr_scale = (6 - fdr) / 3.0
-            mu_scaled = max(0.0, mu_base * fdr_scale)
-            p90 = max(0.0, mu_scaled + sigma * stats.t.ppf(0.9, df))
-        else:
-            p90 = expected_pts * 1.3
+        mu, sigma, df = await _fit_player(element, squad_summaries.get(element["id"]))
+        fdr = team_fdr.get(element["team"], 3.0)
+        expected_pts = _project_gw(mu, fdr)
+        fdr_scale = (6 - fdr) / 3.0
+        mu_scaled = max(0.0, mu * fdr_scale)
+        p90 = max(0.0, mu_scaled + sigma * stats.t.ppf(0.9, df))
 
         opponent_teams = [
             teams_by_id.get(
@@ -199,12 +309,11 @@ async def build_captain_recommendations(
             if f["team_h"] == element["team"] or f["team_a"] == element["team"]
         ]
         opponent = opponent_teams[0] if opponent_teams else "?"
-        fdr_val = team_fdr.get(element["team"], 3.0)
 
         reasoning = (
             f"Expected: {expected_pts:.1f} pts | "
             f"P90 upside: {p90:.1f} pts | "
-            f"vs {opponent} (FDR {fdr_val:.0f})"
+            f"vs {opponent} (FDR {fdr:.0f})"
         )
 
         candidates.append(
