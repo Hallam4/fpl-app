@@ -33,6 +33,7 @@ from models import (
     CaptainResponse,
     PlayerSimulationsResponse,
     BrierScoreResponse,
+    PlayerDetailSimulation,
 )
 
 app = FastAPI(title="FPL Advisor API", lifespan=lifespan)
@@ -214,6 +215,20 @@ async def player_simulations(team_id: int | None = Query(default=None)):
         result = await simulator.run_player_simulations(
             current_gw, bootstrap, squad_player_ids
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return result
+
+
+@app.get("/api/player-detail/{player_id}", response_model=PlayerDetailSimulation)
+async def get_player_detail(player_id: int):
+    try:
+        bootstrap = await fpl_client.get_bootstrap()
+        current_gw = _current_gw(bootstrap)
+        result = await simulator.run_player_detail_simulation(player_id, current_gw, bootstrap)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

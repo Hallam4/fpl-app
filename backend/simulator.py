@@ -7,6 +7,7 @@ from models import (
     SimulationMeta,
     PlayerSimRow,
     PlayerSimulationsResponse,
+    PlayerDetailSimulation,
 )
 
 N_SIMULATIONS = 10_000
@@ -408,4 +409,82 @@ async def run_player_simulations(
         current_gw=current_gw,
         gameweeks=gameweeks,
         players=players,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Single-player detail simulation
+# ---------------------------------------------------------------------------
+
+async def run_player_detail_simulation(
+    player_id: int, current_gw: int, bootstrap: dict
+) -> PlayerDetailSimulation:
+    elements_by_id = {e["id"]: e for e in bootstrap["elements"]}
+    teams_by_id = {t["id"]: t for t in bootstrap["teams"]}
+
+    element = elements_by_id.get(player_id)
+    if element is None:
+        raise ValueError(f"Player {player_id} not found")
+
+    try:
+        summary = await fpl_client.get_element_summary(player_id)
+        history = summary.get("history", [])
+    except Exception:
+        history = []
+
+    last5 = [h["total_points"] for h in history[-5:]] if history else []
+    if last5:
+        mu, sigma, df = _fit_student_t(last5)
+    else:
+        ppg = float(element.get("points_per_game") or "0")
+        mu, sigma, df = ppg, 2.0, 4.0
+
+    # FDR scaling for current GW
+    try:
+        next_fixtures = await fpl_client.get_fixtures(current_gw)
+    except Exception:
+        next_fixtures = []
+
+    fdr = 3.0
+    for f in next_fixtures:
+        if f["team_h"] == element["team"]:
+            fdr = f["team_h_difficulty"]
+            break
+        if f["team_a"] == element["team"]:
+            fdr = f["team_a_difficulty"]
+            break
+
+    mu_scaled = max(0.0, mu * (6 - fdr) / 3.0)
+
+    # 1,000 antithetic + stratified Student-t samples
+    rng = np.random.default_rng(player_id)
+    half = N_PLAYER_SIMS // 2
+    U = _stratified_uniform(rng, half, N_STRATA)
+    U = np.clip(U, 1e-8, 1 - 1e-8)
+    U_anti = 1.0 - U
+
+    s1 = stats.t.ppf(U, df=df) * sigma + mu_scaled
+    s2 = stats.t.ppf(U_anti, df=df) * sigma + mu_scaled
+    samples = np.concatenate([s1, s2])
+    np.maximum(samples, 0, out=samples)
+
+    counts, edges = np.histogram(samples, bins=25)
+    bins = [(edges[i] + edges[i + 1]) / 2 for i in range(len(counts))]
+
+    team_info = teams_by_id.get(element["team"], {})
+
+    return PlayerDetailSimulation(
+        player_id=player_id,
+        name=element["web_name"],
+        team=team_info.get("short_name", "?"),
+        position=POSITION_MAP.get(element["element_type"], "?"),
+        gameweek=current_gw,
+        mean=round(float(np.mean(samples)), 2),
+        median=round(float(np.median(samples)), 2),
+        p25=round(float(np.percentile(samples, 25)), 2),
+        p75=round(float(np.percentile(samples, 75)), 2),
+        p90=round(float(np.percentile(samples, 90)), 2),
+        histogram_bins=[round(b, 2) for b in bins],
+        histogram_counts=counts.tolist(),
+        n_simulations=N_PLAYER_SIMS,
     )

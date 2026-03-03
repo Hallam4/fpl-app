@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import { SimulationResult } from "../api/fpl";
 
-function StatCard({
+export function StatCard({
   label,
   value,
   color,

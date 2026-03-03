@@ -163,3 +163,19 @@ class PlayerSimulationsResponse(BaseModel):
     current_gw: int
     gameweeks: list[int]
     players: list[PlayerSimRow]
+
+
+class PlayerDetailSimulation(BaseModel):
+    player_id: int
+    name: str
+    team: str
+    position: str
+    gameweek: int
+    mean: float
+    median: float
+    p25: float
+    p75: float
+    p90: float
+    histogram_bins: list[float]
+    histogram_counts: list[int]
+    n_simulations: int

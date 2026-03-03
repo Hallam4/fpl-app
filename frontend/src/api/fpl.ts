@@ -168,6 +168,22 @@ export interface PlayerSimulationsResponse {
   players: PlayerSimRow[];
 }
 
+export interface PlayerDetailSimulation {
+  player_id: number;
+  name: string;
+  team: string;
+  position: string;
+  gameweek: number;
+  mean: number;
+  median: number;
+  p25: number;
+  p75: number;
+  p90: number;
+  histogram_bins: number[];
+  histogram_counts: number[];
+  n_simulations: number;
+}
+
 // In production VITE_API_URL is the backend hostname (set by Render blueprint).
 // In dev the Vite proxy forwards /api → localhost:8000.
 const BASE = import.meta.env.VITE_API_URL
@@ -201,4 +217,6 @@ export const fplApi = {
     ),
   getBrier: (teamId: number) =>
     fetchJson<BrierScoreResponse>(`${BASE}/brier/${teamId}`),
+  getPlayerDetail: (playerId: number) =>
+    fetchJson<PlayerDetailSimulation>(`${BASE}/player-detail/${playerId}`),
 };

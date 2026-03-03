@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fplApi, PlayerSimRow, PlayerSimulationsResponse } from "../api/fpl";
 import TeamForecast from "./TeamForecast";
 import BrierScore from "./BrierScore";
+import PlayerDetailPanel from "./PlayerDetailPanel";
 
 type Position = "ALL" | "GKP" | "DEF" | "MID" | "FWD";
 type SortKey = "total" | "name" | "cost";
@@ -39,36 +40,55 @@ function renderRow(
   p: PlayerSimRow,
   highlight: boolean,
   gameweeks: number[],
+  expandedPlayerId: number | null,
+  onToggleExpand: (id: number) => void,
 ) {
+  const isExpanded = expandedPlayerId === p.id;
   return (
-    <tr
-      key={p.id}
-      className={`border-t border-gray-800 ${
-        highlight ? "bg-purple-900/20" : ""
-      }`}
-    >
-      <td className="sticky left-0 z-[5] py-1 pr-2 text-gray-300 text-xs truncate max-w-[8rem] bg-gray-950">
-        <span className="font-medium">{p.name}</span>
-        <span className="text-gray-500 ml-1 text-[10px]">{p.position}</span>
-      </td>
-      <td className="py-1 px-2 text-gray-400 text-xs">{p.team}</td>
-      <td className="py-1 px-2 text-gray-400 text-xs text-right">
-        {p.now_cost.toFixed(1)}
-      </td>
-      <td className="py-1 px-2 text-white text-xs text-right font-bold">
-        {p.total_expected.toFixed(1)}
-      </td>
-      {gameweeks.map((gw, j) => (
-        <td key={gw} className="py-0.5 px-0.5">
-          <div
-            className="w-14 h-8 flex items-center justify-center rounded text-xs font-medium text-white/90"
-            style={cellStyle(p.gw_expected[j])}
+    <React.Fragment key={p.id}>
+      <tr
+        className={`border-t border-gray-800 cursor-pointer hover:bg-gray-800/50 ${
+          highlight ? "bg-purple-900/20" : ""
+        }`}
+        onClick={() => onToggleExpand(p.id)}
+      >
+        <td className="sticky left-0 z-[5] py-1 pr-2 text-gray-300 text-xs truncate max-w-[8rem] bg-gray-950">
+          <span
+            className="inline-block mr-1 text-gray-500 text-[10px] transition-transform"
+            style={{ transform: isExpanded ? "rotate(90deg)" : "none" }}
           >
-            {p.gw_expected[j] <= 0 ? "—" : p.gw_expected[j].toFixed(1)}
-          </div>
+            ▶
+          </span>
+          <span className="font-medium">{p.name}</span>
+          <span className="text-gray-500 ml-1 text-[10px]">{p.position}</span>
         </td>
-      ))}
-    </tr>
+        <td className="py-1 px-2 text-gray-400 text-xs">{p.team}</td>
+        <td className="py-1 px-2 text-gray-400 text-xs text-right">
+          {p.now_cost.toFixed(1)}
+        </td>
+        <td className="py-1 px-2 text-white text-xs text-right font-bold">
+          {p.total_expected.toFixed(1)}
+        </td>
+        {gameweeks.map((gw, j) => (
+          <td key={gw} className="py-0.5 px-0.5">
+            <div
+              className="w-14 h-8 flex items-center justify-center rounded text-xs font-medium text-white/90"
+              style={cellStyle(p.gw_expected[j])}
+            >
+              {p.gw_expected[j] <= 0 ? "—" : p.gw_expected[j].toFixed(1)}
+            </div>
+          </td>
+        ))}
+      </tr>
+      {isExpanded && (
+        <PlayerDetailPanel
+          playerId={p.id}
+          playerName={p.name}
+          gwExpected={p.gw_expected}
+          gameweeks={gameweeks}
+        />
+      )}
+    </React.Fragment>
   );
 }
 
@@ -76,6 +96,8 @@ function renderTable(
   players: PlayerSimRow[],
   highlight: boolean,
   gameweeks: number[],
+  expandedPlayerId: number | null,
+  onToggleExpand: (id: number) => void,
 ) {
   return (
     <div className="overflow-x-auto">
@@ -105,7 +127,9 @@ function renderTable(
           </tr>
         </thead>
         <tbody>
-          {players.map((p) => renderRow(p, highlight, gameweeks))}
+          {players.map((p) =>
+            renderRow(p, highlight, gameweeks, expandedPlayerId, onToggleExpand)
+          )}
         </tbody>
       </table>
     </div>
@@ -250,6 +274,12 @@ function usePlayerFilters(data: PlayerSimulationsResponse | undefined) {
 }
 
 export default function Projections({ teamId }: { teamId: number }) {
+  const [expandedPlayerId, setExpandedPlayerId] = useState<number | null>(null);
+
+  const handleToggleExpand = (id: number) => {
+    setExpandedPlayerId((prev) => (prev === id ? null : id));
+  };
+
   const simQuery = useQuery({
     queryKey: ["simulate", teamId],
     queryFn: () => fplApi.simulate(teamId),
@@ -312,7 +342,7 @@ export default function Projections({ teamId }: { teamId: number }) {
             </h2>
             <LegendBar />
           </div>
-          {renderTable(squadPlayers, true, playerSimQuery.data.gameweeks)}
+          {renderTable(squadPlayers, true, playerSimQuery.data.gameweeks, expandedPlayerId, handleToggleExpand)}
         </section>
       )}
 
@@ -342,6 +372,8 @@ export default function Projections({ teamId }: { teamId: number }) {
               otherPlayers.length > 0 ? otherPlayers : filtered,
               false,
               playerSimQuery.data.gameweeks,
+              expandedPlayerId,
+              handleToggleExpand,
             )}
           </div>
         </section>
