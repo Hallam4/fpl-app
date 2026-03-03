@@ -9,12 +9,7 @@ from models import (
     ChipGW,
     ChipAdvice,
 )
-from simulator import (
-    get_cached_player_simulations,
-    _fit_student_t,
-    _stratified_uniform,
-    N_STRATA,
-)
+from simulator import _fit_student_t, _stratified_uniform, N_STRATA
 
 POSITION_MAP = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
@@ -336,37 +331,64 @@ async def build_chip_advice(
     squad_elements, picks, bank, players_by_id = await get_squad_players(
         team_id, current_gw, bootstrap
     )
-    squad_ids = {e["id"] for e in squad_elements}
 
     picks_by_element = {p["element"]: p for p in picks}
-    bench_ids = [e["id"] for e in squad_elements if picks_by_element[e["id"]]["multiplier"] == 0]
-    playing_ids = [e["id"] for e in squad_elements if picks_by_element[e["id"]]["multiplier"] > 0]
+    bench_elements = [e for e in squad_elements if picks_by_element[e["id"]]["multiplier"] == 0]
+    playing_elements = [e for e in squad_elements if picks_by_element[e["id"]]["multiplier"] > 0]
 
-    sim_data = await get_cached_player_simulations(current_gw, bootstrap, squad_ids)
-    sims_by_id = {p.id: p for p in sim_data.players}
+    # Fit squad players from history
+    squad_summaries = await fpl_client.get_element_summaries_batch(
+        [e["id"] for e in squad_elements]
+    )
+    squad_fits: dict[int, float] = {}  # id → mu_base
+    for element in squad_elements:
+        mu, _, _ = await _fit_player(element, squad_summaries.get(element["id"]))
+        squad_fits[element["id"]] = mu
 
-    n_gws = len(sim_data.gameweeks)
+    # FDR for next 10 GWs
+    gw_end = min(current_gw + 9, 38)
+    gameweeks = list(range(current_gw, gw_end + 1))
+    team_gw_fdr = await _get_team_gw_fdr(current_gw, 10)
+
+    # For FH: get top players from bootstrap by form (no API calls)
+    all_elements = bootstrap["elements"]
+    all_mus: dict[int, float] = {}
+    for el in all_elements:
+        mu, _, _ = _quick_fit(el)
+        all_mus[el["id"]] = mu
+
+    n_gws = len(gameweeks)
     bb_scores = []
     tc_uplifts = []
     fh_gains = []
 
-    for j in range(n_gws):
-        # BB: sum of bench players' expected for this GW
-        bb = sum(sims_by_id[pid].gw_expected[j] for pid in bench_ids if pid in sims_by_id)
+    for j, gw in enumerate(gameweeks):
+        # BB: sum of bench expected
+        bb = sum(
+            _project_gw(squad_fits[e["id"]], team_gw_fdr.get(e["team"], {}).get(gw, 3.0))
+            for e in bench_elements
+        )
         bb_scores.append(bb)
 
-        # TC: best squad player's expected (the extra 1x captain value)
+        # TC: best squad player's expected (extra 1x captain value)
         squad_expected = [
-            sims_by_id[pid].gw_expected[j] for pid in (playing_ids + bench_ids) if pid in sims_by_id
+            _project_gw(squad_fits[e["id"]], team_gw_fdr.get(e["team"], {}).get(gw, 3.0))
+            for e in squad_elements
         ]
         tc = max(squad_expected) if squad_expected else 0.0
         tc_uplifts.append(tc)
 
-        # FH: top 11 from ALL players minus current 11 expected
-        all_expected = [(p.id, p.gw_expected[j]) for p in sim_data.players]
-        all_expected.sort(key=lambda x: x[1], reverse=True)
-        top_11 = sum(v for _, v in all_expected[:11])
-        current_11 = sum(sims_by_id[pid].gw_expected[j] for pid in playing_ids if pid in sims_by_id)
+        # FH: top 11 from all players minus current 11
+        all_gw_expected = [
+            (el["id"], _project_gw(all_mus[el["id"]], team_gw_fdr.get(el["team"], {}).get(gw, 3.0)))
+            for el in all_elements
+        ]
+        all_gw_expected.sort(key=lambda x: x[1], reverse=True)
+        top_11 = sum(v for _, v in all_gw_expected[:11])
+        current_11 = sum(
+            _project_gw(squad_fits[e["id"]], team_gw_fdr.get(e["team"], {}).get(gw, 3.0))
+            for e in playing_elements
+        )
         fh_gains.append(top_11 - current_11)
 
     # Compute ranks (1 = best GW for this chip)
@@ -383,7 +405,7 @@ async def build_chip_advice(
 
     gw_breakdown = [
         ChipGW(
-            gw=sim_data.gameweeks[j],
+            gw=gameweeks[j],
             bb_score=round(bb_scores[j], 1),
             tc_uplift=round(tc_uplifts[j], 1),
             fh_gain=round(fh_gains[j], 1),
@@ -399,11 +421,11 @@ async def build_chip_advice(
     best_fh_idx = fh_gains.index(max(fh_gains))
 
     return ChipAdvice(
-        best_bb_gw=sim_data.gameweeks[best_bb_idx],
+        best_bb_gw=gameweeks[best_bb_idx],
         best_bb_score=round(bb_scores[best_bb_idx], 1),
-        best_tc_gw=sim_data.gameweeks[best_tc_idx],
+        best_tc_gw=gameweeks[best_tc_idx],
         best_tc_uplift=round(tc_uplifts[best_tc_idx], 1),
-        best_fh_gw=sim_data.gameweeks[best_fh_idx],
+        best_fh_gw=gameweeks[best_fh_idx],
         best_fh_gain=round(fh_gains[best_fh_idx], 1),
         gw_breakdown=gw_breakdown,
     )
